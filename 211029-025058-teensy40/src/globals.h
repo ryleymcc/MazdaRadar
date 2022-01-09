@@ -8,6 +8,9 @@ uint64_t distance_lead;
 uint64_t relative_vel;
 uint64_t counter;
 
+bool gear;
+bool cancel;
+
 int cnt = 0;
 
 uint64_t acc_fixed;

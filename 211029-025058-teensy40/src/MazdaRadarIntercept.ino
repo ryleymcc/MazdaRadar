@@ -3,7 +3,6 @@
 #include <globals.h>
 #include <helpers.h>
 #include <defs.h>
-
 IntervalTimer canTimer;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> mazda;
@@ -32,6 +31,7 @@ void loop() {
       case 0x1E0: {
         can_tick = 0; //reset timer
         accel_request = get_accel_request(msg);
+        //op_acc_enabled = get_op_acc_enabled(msg);
 #ifdef DEBUG 
         if (frame % 100 == 0) {
           Serial.print(msg.id, HEX);
@@ -44,6 +44,16 @@ void loop() {
           Serial.println();
         }
 #endif
+        break;
+      }
+      case 0x228: {
+        gear = (msg.buf[0] & 4);
+        //Serial.println(msg.buf[0], HEX);
+        break;
+      }
+      case 0x9D: {
+        cancel = (msg.buf[0] & 1) == 1;
+        break;
       }
     }
     radar.write(msg);
@@ -58,13 +68,25 @@ void loop() {
 
           crz_ended = ((uint64_t)msg.buf[4] & 0x10) << 24;
           acc_allowed = ((uint64_t)msg.buf[4] & 0x4) << 24;
-          acc_active = ((uint64_t)msg.buf[4] & 0x2) << 24;
+          if (acc_active) {
+            if (cancel) {
+              acc_active = ((uint64_t)msg.buf[4] & 0x2) << 24;
+            }else{
+              acc_active = ((uint64_t)0xFF & 0x2) << 24;
+            }
+          }
+          else{
+            acc_active = ((uint64_t)msg.buf[4] & 0x2) << 24;
+          }
           uint64_t mystery_bit = ((uint64_t)msg.buf[5] & 0x80) << 16;
           counter = ((uint64_t)msg.buf[6] & 0x0F) << 8;
           // Read the acceleration command
           radar_acc_command = get_radar_acc_command(msg);
-
-
+          crz_ended = ((uint64_t)0x0 & 0x10) << 24;
+          if (gear) {
+            acc_allowed = ((uint64_t)0xFF & 0x4) << 24;
+            //Serial.println("Gear");
+          }
           if (acc_active) {
             #ifdef DEBUG 
             if (frame % 10 == 0) {
@@ -73,7 +95,11 @@ void loop() {
             }
             #endif
             if (can_tick < 40) { // if OP command is old
-                radar_acc_command = (((uint64_t)applyAccelLimits()) << 29);
+                if (accel_request < (radar_acc_command >> 29)) {
+                  radar_acc_command = (((uint64_t)applyAccelLimits()) << 29);
+                }
+
+                //radar_acc_command = (((uint64_t)4096 - 1000) << 29);
             }
             #ifdef DEBUG           
             if (frame % 10 == 0) {
@@ -92,7 +118,10 @@ void loop() {
           memcpy(msg.buf, &data, 8);
           break;
         }
-        
+        case 0x21c: {
+          break;
+        }
+
         case 0x361: {
           // Add all the signals together
           uint64_t data = STATIC_DATA_361 | get_inverse_speed(msg) | get_counter(msg);
